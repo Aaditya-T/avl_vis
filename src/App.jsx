@@ -9,6 +9,8 @@ import {
   Activity,
   FastForward,
   Settings,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 // --- AVL Tree Data Structure with Unique IDs ---
@@ -258,6 +260,17 @@ class AVLTree {
   }
 }
 
+const cloneNode = (node) => {
+  if (!node) return null;
+  return {
+    id: node.id,
+    value: node.value,
+    left: cloneNode(node.left),
+    right: cloneNode(node.right),
+    height: node.height,
+  };
+};
+
 // --- Main Application Component ---
 
 export default function App() {
@@ -274,6 +287,75 @@ export default function App() {
   const [targetNodeId, setTargetNodeId] = useState(null);
   const [deletingNodeId, setDeletingNodeId] = useState(null);
 
+  // Replay State
+  const [historyFrames, setHistoryFrames] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [isReviewMode, setIsReviewMode] = useState(false);
+
+  const logsRef = useRef([]);
+  const activeNodeIdRef = useRef(null);
+  const targetNodeIdRef = useRef(null);
+  const deletingNodeIdRef = useRef(null);
+  const historyFramesRef = useRef([]);
+
+  const displayedFrame = isReviewMode && historyFrames[historyIndex] ? historyFrames[historyIndex] : null;
+  const displayedRoot = displayedFrame ? displayedFrame.root : tree.root;
+  const displayedLogs = displayedFrame ? displayedFrame.logs : globalLogs;
+  const displayedActiveNodeId = displayedFrame ? displayedFrame.activeNodeId : activeNodeId;
+  const displayedTargetNodeId = displayedFrame ? displayedFrame.targetNodeId : targetNodeId;
+  const displayedDeletingNodeId = displayedFrame ? displayedFrame.deletingNodeId : deletingNodeId;
+
+  const setLogs = (nextLogs) => {
+    logsRef.current = nextLogs;
+    setGlobalLogs(nextLogs);
+  };
+
+  const pushLog = (msg) => {
+    const nextLogs = [...logsRef.current, msg];
+    setLogs(nextLogs);
+  };
+
+  const setHighlightState = (id) => {
+    activeNodeIdRef.current = id;
+    setActiveNodeId(id);
+  };
+
+  const setTargetState = (id) => {
+    targetNodeIdRef.current = id;
+    setTargetNodeId(id);
+  };
+
+  const setDeletingState = (id) => {
+    deletingNodeIdRef.current = id;
+    setDeletingNodeId(id);
+  };
+
+  const captureFrame = () => {
+    historyFramesRef.current.push({
+      root: cloneNode(tree.root),
+      activeNodeId: activeNodeIdRef.current,
+      targetNodeId: targetNodeIdRef.current,
+      deletingNodeId: deletingNodeIdRef.current,
+      logs: [...logsRef.current],
+    });
+  };
+
+  const startNewHistory = () => {
+    historyFramesRef.current = [];
+    setHistoryFrames([]);
+    setHistoryIndex(-1);
+    setIsReviewMode(false);
+  };
+
+  const finalizeHistory = () => {
+    const frames = [...historyFramesRef.current];
+    setHistoryFrames(frames);
+    if (frames.length > 0) {
+      setHistoryIndex(frames.length - 1);
+      setIsReviewMode(true);
+    }
+  };
+
   useEffect(() => {
     handleRandomize();
   }, []);
@@ -282,34 +364,53 @@ export default function App() {
     if (logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [globalLogs]);
+  }, [globalLogs, historyIndex, isReviewMode]);
 
   // Context passed to the async tree methods
   const createContext = () => ({
     sleep: () => new Promise((resolve) => setTimeout(resolve, simSpeed)),
-    log: (msg) => setGlobalLogs((prev) => [...prev, msg]),
-    setHighlight: (id) => setActiveNodeId(id),
-    setTarget: (id) => setTargetNodeId(id),
-    setDeleting: (id) => setDeletingNodeId(id),
-    updateTree: () => setTick((t) => t + 1),
+    log: (msg) => {
+      pushLog(msg);
+      captureFrame();
+    },
+    setHighlight: (id) => {
+      setHighlightState(id);
+      captureFrame();
+    },
+    setTarget: (id) => {
+      setTargetState(id);
+      captureFrame();
+    },
+    setDeleting: (id) => {
+      setDeletingState(id);
+      captureFrame();
+    },
+    updateTree: () => {
+      setTick((t) => t + 1);
+      captureFrame();
+    },
   });
 
   const handleInsert = async (e) => {
     e?.preventDefault();
     const val = parseInt(inputValue, 10);
     if (!isNaN(val) && val >= 0 && val <= 999 && !isSimulating) {
+      startNewHistory();
       setIsSimulating(true);
-      setGlobalLogs((prev) => [...prev, `--- Action: Insert ${val} ---`]);
+      pushLog(`--- Action: Insert ${val} ---`);
       setInputValue("");
+      captureFrame();
 
       const ctx = createContext();
       tree.root = await tree.insert(tree.root, val, ctx);
 
-      setActiveNodeId(null);
-      setTargetNodeId(null);
-      setDeletingNodeId(null);
+      setHighlightState(null);
+      setTargetState(null);
+      setDeletingState(null);
       setTick((t) => t + 1);
-      setGlobalLogs((prev) => [...prev, `Insertion of ${val} complete.`]);
+      pushLog(`Insertion of ${val} complete.`);
+      captureFrame();
+      finalizeHistory();
       setIsSimulating(false);
     }
   };
@@ -317,31 +418,45 @@ export default function App() {
   const handleDelete = async () => {
     const val = parseInt(inputValue, 10);
     if (!isNaN(val) && !isSimulating) {
+      startNewHistory();
       setIsSimulating(true);
-      setGlobalLogs((prev) => [...prev, `--- Action: Delete ${val} ---`]);
+      pushLog(`--- Action: Delete ${val} ---`);
       setInputValue("");
+      captureFrame();
 
       const ctx = createContext();
       tree.root = await tree.delete(tree.root, val, ctx);
 
-      setActiveNodeId(null);
-      setTargetNodeId(null);
-      setDeletingNodeId(null);
+      setHighlightState(null);
+      setTargetState(null);
+      setDeletingState(null);
       setTick((t) => t + 1);
-      setGlobalLogs((prev) => [...prev, `Deletion process for ${val} complete.`]);
+      pushLog(`Deletion process for ${val} complete.`);
+      captureFrame();
+      finalizeHistory();
       setIsSimulating(false);
     }
   };
 
   const handleClear = () => {
+    if (isSimulating) return;
+    startNewHistory();
     tree.root = null;
-    setGlobalLogs(["--- Tree Cleared ---"]);
+    setHighlightState(null);
+    setTargetState(null);
+    setDeletingState(null);
+    setLogs(["--- Tree Cleared ---"]);
     setTick((t) => t + 1);
   };
 
   const handleRandomize = () => {
+    if (isSimulating) return;
+    startNewHistory();
     tree.root = null;
-    setGlobalLogs(["--- Generating Random Tree ---"]);
+    setHighlightState(null);
+    setTargetState(null);
+    setDeletingState(null);
+    setLogs(["--- Generating Random Tree ---"]);
     const nums = new Set();
     while (nums.size < 7) {
       nums.add(Math.floor(Math.random() * 100));
@@ -352,12 +467,28 @@ export default function App() {
     setTick((t) => t + 1);
   };
 
+  const moveHistory = (delta) => {
+    setHistoryIndex((prev) => {
+      const next = prev + delta;
+      if (next < 0) return 0;
+      if (next >= historyFrames.length) return historyFrames.length - 1;
+      return next;
+    });
+  };
+
+  const exitReview = () => {
+    setIsReviewMode(false);
+  };
+
+  const stepLabel =
+    isReviewMode && historyFrames.length > 0 ? `Step ${historyIndex + 1} / ${historyFrames.length}` : "";
+
   // --- Layout Engine ---
   const { nodes, edges } = useMemo(() => {
     const calculatedNodes = [];
     const calculatedEdges = [];
 
-    const traverse = (node, x, y, dx, level) => {
+    const traverse = (node, x, y, dx) => {
       if (!node) return;
 
       const balance = tree.getBalance(node);
@@ -368,19 +499,19 @@ export default function App() {
         // lines will smoothly pivot and stretch to their new children during a rotation!
         const edgeId = `${node.id}-L`;
         calculatedEdges.push({ id: edgeId, x1: x, y1: y, x2: x - dx, y2: y + 80 });
-        traverse(node.left, x - dx, y + 80, dx * 0.55, level + 1);
+        traverse(node.left, x - dx, y + 80, dx * 0.55);
       }
 
       if (node.right) {
         const edgeId = `${node.id}-R`;
         calculatedEdges.push({ id: edgeId, x1: x, y1: y, x2: x + dx, y2: y + 80 });
-        traverse(node.right, x + dx, y + 80, dx * 0.55, level + 1);
+        traverse(node.right, x + dx, y + 80, dx * 0.55);
       }
     };
 
-    traverse(tree.root, 400, 40, 180, 0);
+    traverse(displayedRoot, 400, 40, 180);
     return { nodes: calculatedNodes, edges: calculatedEdges };
-  }, [tree.root, tick]);
+  }, [displayedRoot, tick]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-indigo-500/30">
@@ -417,6 +548,10 @@ export default function App() {
             {isSimulating ? (
               <span className="flex animate-pulse items-center gap-1 text-amber-400">
                 <Play className="h-4 w-4" /> Simulation Running...
+              </span>
+            ) : isReviewMode && historyFrames.length > 0 ? (
+              <span className="flex items-center gap-1 text-cyan-300">
+                <FastForward className="h-4 w-4" /> Reviewing {stepLabel}
               </span>
             ) : (
               <span className="flex items-center gap-1">
@@ -466,13 +601,17 @@ export default function App() {
               <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                 Step-by-Step Log
               </h2>
-              {isSimulating && <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500"></div>}
+              {isSimulating ? (
+                <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500"></div>
+              ) : isReviewMode ? (
+                <span className="text-[10px] font-medium text-cyan-300">{stepLabel}</span>
+              ) : null}
             </div>
             <div className="max-h-[350px] flex-1 space-y-2 overflow-y-auto rounded-b-2xl bg-slate-950/50 p-4 font-mono text-xs">
-              {globalLogs.length === 0 ? (
+              {displayedLogs.length === 0 ? (
                 <span className="italic text-slate-600">Waiting for operations...</span>
               ) : (
-                globalLogs.map((log, i) => (
+                displayedLogs.map((log, i) => (
                   <div
                     key={i}
                     className={`
@@ -568,6 +707,62 @@ export default function App() {
             </div>
           </div>
 
+          {/* Replay Controls */}
+          {historyFrames.length > 0 && !isSimulating && (
+            <div className="rounded-2xl border border-cyan-900/60 bg-cyan-950/20 p-4 shadow-xl">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-cyan-100">
+                  Replay available for last operation. {isReviewMode ? stepLabel : "Open replay to retrace."}
+                </p>
+                {!isReviewMode ? (
+                  <button
+                    onClick={() => {
+                      setIsReviewMode(true);
+                      setHistoryIndex(historyFrames.length - 1);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-lg border border-cyan-700 bg-cyan-900/40 px-3 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-900/60"
+                  >
+                    <FastForward className="h-4 w-4" /> Review Last Action
+                  </button>
+                ) : (
+                  <button
+                    onClick={exitReview}
+                    className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700"
+                  >
+                    Exit Review
+                  </button>
+                )}
+              </div>
+
+              {isReviewMode && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => moveHistory(-1)}
+                    disabled={historyIndex <= 0}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ChevronLeft className="h-4 w-4" /> Prev
+                  </button>
+                  <button
+                    onClick={() => moveHistory(1)}
+                    disabled={historyIndex >= historyFrames.length - 1}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Next <ChevronRight className="h-4 w-4" />
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={historyFrames.length - 1}
+                    value={Math.max(historyIndex, 0)}
+                    onChange={(e) => setHistoryIndex(Number(e.target.value))}
+                    className="h-2 w-full max-w-sm cursor-pointer accent-cyan-400"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           {/* SVG Canvas Workspace */}
           <div
             className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-xl"
@@ -620,9 +815,9 @@ export default function App() {
 
                 {/* Render Nodes */}
                 {nodes.map((node) => {
-                  const isActive = node.id === activeNodeId;
-                  const isTarget = node.id === targetNodeId;
-                  const isDeleting = node.id === deletingNodeId;
+                  const isActive = node.id === displayedActiveNodeId;
+                  const isTarget = node.id === displayedTargetNodeId;
+                  const isDeleting = node.id === displayedDeletingNodeId;
 
                   let strokeColor = "#6366f1"; // Default indigo
                   let strokeWidth = "3";
